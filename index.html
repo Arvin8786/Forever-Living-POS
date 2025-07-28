@@ -1,0 +1,211 @@
+import os
+import json
+from fpdf import FPDF
+from datetime import datetime
+
+# Product database based on the PDF (simplified for example)
+products = [
+    {
+        "id": 1,
+        "name": "ALOE VERA GEL",
+        "image": "aloe-vera-gel.jpg",
+        "price": 81.75,  # ASV price
+        "category": "DRINKS",
+        "cc": 0.109
+    },
+    {
+        "id": 2,
+        "name": "ALOE BERRY NECTAR",
+        "image": "aloe-berry-nectar.jpg",
+        "price": 81.75,
+        "category": "DRINKS",
+        "cc": 0.109
+    },
+    # Add all other products similarly...
+    {
+        "id": 12,
+        "name": "BEE HONEY",
+        "image": "bee-honey.jpg",
+        "price": 92.80,
+        "category": "NUTRITION & SUPPLEMENTS",
+        "cc": 0.123
+    },
+    # Continue with all products...
+]
+
+class ForeverLivingPOS:
+    def __init__(self):
+        self.cart = []
+        self.load_products()
+    
+    def load_products(self):
+        """Load products from a JSON file (could be generated from PDF)"""
+        try:
+            with open('products.json', 'r') as f:
+                self.products = json.load(f)
+        except FileNotFoundError:
+            # Fallback to our hardcoded list if no JSON file
+            self.products = products
+    
+    def display_categories(self):
+        """Display product categories"""
+        categories = set(p["category"] for p in self.products)
+        print("\nCategories:")
+        for i, category in enumerate(categories, 1):
+            print(f"{i}. {category}")
+        return categories
+    
+    def display_products(self, category):
+        """Display products in a category"""
+        category_products = [p for p in self.products if p["category"] == category]
+        print(f"\n{category} Products:")
+        for product in category_products:
+            print(f"{product['id']}. {product['name']} - RM{product['price']:.2f}")
+        return category_products
+    
+    def add_to_cart(self, product_id, quantity=1):
+        """Add product to cart"""
+        product = next((p for p in self.products if p["id"] == product_id), None)
+        if product:
+            # Check if product already in cart
+            cart_item = next((item for item in self.cart if item["id"] == product_id), None)
+            if cart_item:
+                cart_item["quantity"] += quantity
+            else:
+                self.cart.append({
+                    "id": product_id,
+                    "name": product["name"],
+                    "price": product["price"],
+                    "quantity": quantity,
+                    "image": product["image"]
+                })
+            print(f"Added {quantity} x {product['name']} to cart")
+            return True
+        print("Product not found")
+        return False
+    
+    def view_cart(self):
+        """Display current cart contents"""
+        if not self.cart:
+            print("Your cart is empty")
+            return
+        
+        total = 0
+        print("\nYour Cart:")
+        for item in self.cart:
+            item_total = item["price"] * item["quantity"]
+            print(f"{item['quantity']} x {item['name']} - RM{item['price']:.2f} each = RM{item_total:.2f}")
+            total += item_total
+        
+        print(f"\nTotal: RM{total:.2f}")
+        return total
+    
+    def checkout(self):
+        """Process checkout and generate receipt"""
+        total = self.view_cart()
+        if total == 0:
+            return
+        
+        print("\nCheckout Options:")
+        print("1. Cash")
+        print("2. Credit Card")
+        print("3. Online Transfer")
+        
+        try:
+            payment_method = int(input("Select payment method (1-3): "))
+            if payment_method not in [1, 2, 3]:
+                raise ValueError
+        except ValueError:
+            print("Invalid payment method")
+            return
+        
+        payment_methods = {1: "Cash", 2: "Credit Card", 3: "Online Transfer"}
+        self.generate_receipt(total, payment_methods[payment_method])
+        self.cart = []  # Clear cart after checkout
+    
+    def generate_receipt(self, total, payment_method):
+        """Generate PDF receipt"""
+        receipt = FPDF()
+        receipt.add_page()
+        receipt.set_font("Arial", size=12)
+        
+        # Header
+        receipt.cell(200, 10, txt="FOREVER LIVING PRODUCTS", ln=1, align="C")
+        receipt.cell(200, 10, txt="RECEIPT", ln=1, align="C")
+        receipt.cell(200, 10, txt=f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=1)
+        receipt.ln(5)
+        
+        # Items
+        receipt.cell(100, 10, txt="Item", border=1)
+        receipt.cell(30, 10, txt="Price", border=1)
+        receipt.cell(30, 10, txt="Qty", border=1)
+        receipt.cell(30, 10, txt="Total", border=1, ln=1)
+        
+        for item in self.cart:
+            receipt.cell(100, 10, txt=item["name"], border=1)
+            receipt.cell(30, 10, txt=f"RM{item['price']:.2f}", border=1)
+            receipt.cell(30, 10, txt=str(item["quantity"]), border=1)
+            receipt.cell(30, 10, txt=f"RM{item['price'] * item['quantity']:.2f}", border=1, ln=1)
+        
+        # Footer
+        receipt.ln(5)
+        receipt.cell(160, 10, txt="Subtotal:", align="R")
+        receipt.cell(30, 10, txt=f"RM{total:.2f}", ln=1)
+        
+        # Save receipt
+        filename = f"receipt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        receipt.output(filename)
+        print(f"\nReceipt saved as {filename}")
+    
+    def run(self):
+        """Main POS interface"""
+        print("Welcome to Forever Living POS System")
+        
+        while True:
+            print("\nMain Menu:")
+            print("1. Browse Products")
+            print("2. View Cart")
+            print("3. Checkout")
+            print("4. Exit")
+            
+            try:
+                choice = int(input("Select option (1-4): "))
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+                continue
+            
+            if choice == 1:
+                categories = list(self.display_categories())
+                try:
+                    cat_choice = int(input("Select category: ")) - 1
+                    if 0 <= cat_choice < len(categories):
+                        category_products = self.display_products(categories[cat_choice])
+                        try:
+                            prod_choice = int(input("Select product to add to cart: "))
+                            quantity = int(input("Quantity: "))
+                            if quantity <= 0:
+                                raise ValueError
+                            self.add_to_cart(prod_choice, quantity)
+                        except ValueError:
+                            print("Invalid product selection or quantity")
+                    else:
+                        print("Invalid category selection")
+                except ValueError:
+                    print("Invalid input")
+            
+            elif choice == 2:
+                self.view_cart()
+            
+            elif choice == 3:
+                self.checkout()
+            
+            elif choice == 4:
+                print("Thank you for using Forever Living POS System")
+                break
+            
+            else:
+                print("Invalid choice. Please select 1-4.")
+
+if __name__ == "__main__":
+    pos = ForeverLivingPOS()
+    pos.run()
