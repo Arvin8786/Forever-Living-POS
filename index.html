@@ -2,14 +2,17 @@ import os
 import json
 from fpdf import FPDF
 from datetime import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox, PhotoImage
+from PIL import Image, ImageTk
 
-# Product database based on the PDF (simplified for example)
+# Sample product database based on your PDF (truncated for example)
 products = [
     {
         "id": 1,
         "name": "ALOE VERA GEL",
         "image": "aloe-vera-gel.jpg",
-        "price": 81.75,  # ASV price
+        "price": 81.75,
         "category": "DRINKS",
         "cc": 0.109
     },
@@ -21,7 +24,6 @@ products = [
         "category": "DRINKS",
         "cc": 0.109
     },
-    # Add all other products similarly...
     {
         "id": 12,
         "name": "BEE HONEY",
@@ -30,100 +32,253 @@ products = [
         "category": "NUTRITION & SUPPLEMENTS",
         "cc": 0.123
     },
-    # Continue with all products...
+    # Add more products as needed...
 ]
 
 class ForeverLivingPOS:
-    def __init__(self):
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Forever Living POS System")
+        self.root.geometry("1200x800")
+        
+        # Initialize cart
         self.cart = []
-        self.load_products()
+        
+        # Load products
+        self.products = self.load_products()
+        
+        # Create GUI
+        self.create_widgets()
+        
+        # Load categories
+        self.categories = self.get_categories()
+        self.category_var = tk.StringVar()
+        self.update_category_dropdown()
     
     def load_products(self):
-        """Load products from a JSON file (could be generated from PDF)"""
+        """Load products from JSON file or use sample data"""
         try:
             with open('products.json', 'r') as f:
-                self.products = json.load(f)
-        except FileNotFoundError:
-            # Fallback to our hardcoded list if no JSON file
-            self.products = products
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Create products.json if it doesn't exist
+            with open('products.json', 'w') as f:
+                json.dump(products, f, indent=2)
+            return products
     
-    def display_categories(self):
-        """Display product categories"""
-        categories = set(p["category"] for p in self.products)
-        print("\nCategories:")
-        for i, category in enumerate(categories, 1):
-            print(f"{i}. {category}")
-        return categories
+    def get_categories(self):
+        """Get unique product categories"""
+        return sorted(list(set(p["category"] for p in self.products)))
     
-    def display_products(self, category):
-        """Display products in a category"""
+    def update_category_dropdown(self):
+        """Update the category dropdown menu"""
+        self.category_dropdown['values'] = self.categories
+        if self.categories:
+            self.category_var.set(self.categories[0])
+            self.update_products_list(self.categories[0])
+    
+    def update_products_list(self, category):
+        """Update products list based on selected category"""
+        # Clear current products
+        for widget in self.products_frame.winfo_children():
+            widget.destroy()
+        
+        # Get products in selected category
         category_products = [p for p in self.products if p["category"] == category]
-        print(f"\n{category} Products:")
-        for product in category_products:
-            print(f"{product['id']}. {product['name']} - RM{product['price']:.2f}")
-        return category_products
+        
+        # Display products
+        for i, product in enumerate(category_products):
+            row = i // 4
+            col = i % 4
+            
+            # Create product frame
+            product_frame = tk.Frame(self.products_frame, bd=2, relief=tk.RAISED, padx=5, pady=5)
+            product_frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+            
+            # Try to load product image
+            img_path = os.path.join("images", product["image"])
+            try:
+                img = Image.open(img_path)
+                img = img.resize((100, 100), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                
+                # Keep reference to prevent garbage collection
+                setattr(self, f"product_img_{product['id']}", photo)
+                
+                img_label = tk.Label(product_frame, image=photo)
+                img_label.image = photo  # Keep reference
+                img_label.pack()
+            except (FileNotFoundError, AttributeError):
+                img_label = tk.Label(product_frame, text="No Image", width=15, height=5)
+                img_label.pack()
+            
+            # Product name and price
+            name_label = tk.Label(product_frame, text=product["name"], wraplength=150)
+            name_label.pack()
+            
+            price_label = tk.Label(product_frame, text=f"RM{product['price']:.2f}")
+            price_label.pack()
+            
+            # Add to cart button
+            add_button = tk.Button(
+                product_frame, 
+                text="Add to Cart", 
+                command=lambda p=product: self.add_to_cart(p)
+            )
+            add_button.pack(fill=tk.X)
     
-    def add_to_cart(self, product_id, quantity=1):
+    def add_to_cart(self, product):
         """Add product to cart"""
-        product = next((p for p in self.products if p["id"] == product_id), None)
-        if product:
-            # Check if product already in cart
-            cart_item = next((item for item in self.cart if item["id"] == product_id), None)
-            if cart_item:
-                cart_item["quantity"] += quantity
-            else:
-                self.cart.append({
-                    "id": product_id,
-                    "name": product["name"],
-                    "price": product["price"],
-                    "quantity": quantity,
-                    "image": product["image"]
-                })
-            print(f"Added {quantity} x {product['name']} to cart")
-            return True
-        print("Product not found")
-        return False
-    
-    def view_cart(self):
-        """Display current cart contents"""
-        if not self.cart:
-            print("Your cart is empty")
-            return
-        
-        total = 0
-        print("\nYour Cart:")
+        # Check if product already in cart
         for item in self.cart:
-            item_total = item["price"] * item["quantity"]
-            print(f"{item['quantity']} x {item['name']} - RM{item['price']:.2f} each = RM{item_total:.2f}")
-            total += item_total
+            if item["id"] == product["id"]:
+                item["quantity"] += 1
+                self.update_cart_display()
+                return
         
-        print(f"\nTotal: RM{total:.2f}")
-        return total
+        # Add new item to cart
+        self.cart.append({
+            "id": product["id"],
+            "name": product["name"],
+            "price": product["price"],
+            "quantity": 1,
+            "image": product["image"]
+        })
+        self.update_cart_display()
+    
+    def update_cart_display(self):
+        """Update the cart display"""
+        # Clear current cart display
+        for widget in self.cart_frame.winfo_children():
+            widget.destroy()
+        
+        # Add column headers
+        headers = ["Product", "Price", "Qty", "Subtotal", "Actions"]
+        for col, header in enumerate(headers):
+            tk.Label(self.cart_frame, text=header, font=('Helvetica', 10, 'bold')).grid(
+                row=0, column=col, padx=5, pady=2, sticky="w"
+            )
+        
+        # Add cart items
+        self.total = 0
+        for row, item in enumerate(self.cart, 1):
+            # Product name
+            tk.Label(self.cart_frame, text=item["name"]).grid(
+                row=row, column=0, padx=5, pady=2, sticky="w"
+            )
+            
+            # Price
+            tk.Label(self.cart_frame, text=f"RM{item['price']:.2f}").grid(
+                row=row, column=1, padx=5, pady=2
+            )
+            
+            # Quantity
+            qty_frame = tk.Frame(self.cart_frame)
+            qty_frame.grid(row=row, column=2, padx=5, pady=2)
+            
+            tk.Button(qty_frame, text="-", width=2, 
+                     command=lambda i=item: self.update_quantity(i, -1)).pack(side=tk.LEFT)
+            
+            qty_label = tk.Label(qty_frame, text=str(item["quantity"]), width=4)
+            qty_label.pack(side=tk.LEFT)
+            
+            tk.Button(qty_frame, text="+", width=2, 
+                     command=lambda i=item: self.update_quantity(i, 1)).pack(side=tk.LEFT)
+            
+            # Subtotal
+            subtotal = item["price"] * item["quantity"]
+            tk.Label(self.cart_frame, text=f"RM{subtotal:.2f}").grid(
+                row=row, column=3, padx=5, pady=2
+            )
+            
+            # Remove button
+            tk.Button(self.cart_frame, text="Remove", 
+                     command=lambda i=item: self.remove_from_cart(i)).grid(
+                row=row, column=4, padx=5, pady=2
+            )
+            
+            self.total += subtotal
+        
+        # Add total row
+        tk.Label(self.cart_frame, text="TOTAL:", font=('Helvetica', 10, 'bold')).grid(
+            row=len(self.cart)+1, column=2, padx=5, pady=5, sticky="e"
+        )
+        tk.Label(self.cart_frame, text=f"RM{self.total:.2f}", 
+                font=('Helvetica', 10, 'bold')).grid(
+            row=len(self.cart)+1, column=3, padx=5, pady=5
+        )
+        
+        # Checkout button
+        if self.cart:
+            tk.Button(self.cart_frame, text="Checkout", 
+                     command=self.checkout, bg="green", fg="white").grid(
+                row=len(self.cart)+2, column=0, columnspan=5, pady=10, sticky="we"
+            )
+    
+    def update_quantity(self, item, change):
+        """Update item quantity in cart"""
+        item["quantity"] += change
+        if item["quantity"] <= 0:
+            self.remove_from_cart(item)
+        else:
+            self.update_cart_display()
+    
+    def remove_from_cart(self, item):
+        """Remove item from cart"""
+        self.cart = [i for i in self.cart if i["id"] != item["id"]]
+        self.update_cart_display()
     
     def checkout(self):
-        """Process checkout and generate receipt"""
-        total = self.view_cart()
-        if total == 0:
+        """Process checkout"""
+        if not self.cart:
+            messagebox.showwarning("Empty Cart", "Your cart is empty!")
             return
         
-        print("\nCheckout Options:")
-        print("1. Cash")
-        print("2. Credit Card")
-        print("3. Online Transfer")
+        # Create checkout window
+        checkout_win = tk.Toplevel(self.root)
+        checkout_win.title("Checkout")
+        checkout_win.geometry("400x300")
         
-        try:
-            payment_method = int(input("Select payment method (1-3): "))
-            if payment_method not in [1, 2, 3]:
-                raise ValueError
-        except ValueError:
-            print("Invalid payment method")
-            return
+        # Payment method
+        tk.Label(checkout_win, text="Payment Method:").pack(pady=5)
+        payment_var = tk.StringVar(value="Cash")
+        tk.Radiobutton(checkout_win, text="Cash", variable=payment_var, value="Cash").pack()
+        tk.Radiobutton(checkout_win, text="Credit Card", variable=payment_var, value="Credit Card").pack()
+        tk.Radiobutton(checkout_win, text="Online Transfer", variable=payment_var, value="Online Transfer").pack()
         
-        payment_methods = {1: "Cash", 2: "Credit Card", 3: "Online Transfer"}
-        self.generate_receipt(total, payment_methods[payment_method])
-        self.cart = []  # Clear cart after checkout
+        # Customer info
+        tk.Label(checkout_win, text="Customer Name:").pack(pady=5)
+        name_entry = tk.Entry(checkout_win)
+        name_entry.pack()
+        
+        # Complete checkout button
+        def complete_checkout():
+            payment_method = payment_var.get()
+            customer_name = name_entry.get() or "Walk-in Customer"
+            
+            # Generate receipt
+            receipt_filename = self.generate_receipt(payment_method, customer_name)
+            
+            # Show success message
+            messagebox.showinfo(
+                "Order Complete", 
+                f"Thank you for your order!\nReceipt saved as {receipt_filename}"
+            )
+            
+            # Clear cart and close window
+            self.cart = []
+            self.update_cart_display()
+            checkout_win.destroy()
+        
+        tk.Button(
+            checkout_win, 
+            text="Complete Order", 
+            command=complete_checkout,
+            bg="green", 
+            fg="white"
+        ).pack(pady=20)
     
-    def generate_receipt(self, total, payment_method):
+    def generate_receipt(self, payment_method, customer_name):
         """Generate PDF receipt"""
         receipt = FPDF()
         receipt.add_page()
@@ -133,79 +288,113 @@ class ForeverLivingPOS:
         receipt.cell(200, 10, txt="FOREVER LIVING PRODUCTS", ln=1, align="C")
         receipt.cell(200, 10, txt="RECEIPT", ln=1, align="C")
         receipt.cell(200, 10, txt=f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=1)
-        receipt.ln(5)
+        receipt.cell(200, 10, txt=f"Customer: {customer_name}", ln=1)
+        receipt.cell(200, 10, txt=f"Payment Method: {payment_method}", ln=1)
+        receipt.ln(10)
         
-        # Items
+        # Items header
         receipt.cell(100, 10, txt="Item", border=1)
         receipt.cell(30, 10, txt="Price", border=1)
-        receipt.cell(30, 10, txt="Qty", border=1)
-        receipt.cell(30, 10, txt="Total", border=1, ln=1)
+        receipt.cell(20, 10, txt="Qty", border=1)
+        receipt.cell(40, 10, txt="Subtotal", border=1, ln=1)
         
+        # Items
         for item in self.cart:
             receipt.cell(100, 10, txt=item["name"], border=1)
             receipt.cell(30, 10, txt=f"RM{item['price']:.2f}", border=1)
-            receipt.cell(30, 10, txt=str(item["quantity"]), border=1)
-            receipt.cell(30, 10, txt=f"RM{item['price'] * item['quantity']:.2f}", border=1, ln=1)
+            receipt.cell(20, 10, txt=str(item["quantity"]), border=1)
+            receipt.cell(40, 10, txt=f"RM{item['price'] * item['quantity']:.2f}", border=1, ln=1)
+        
+        # Total
+        receipt.ln(10)
+        receipt.cell(150, 10, txt="TOTAL:", align="R")
+        receipt.cell(40, 10, txt=f"RM{self.total:.2f}", ln=1)
         
         # Footer
-        receipt.ln(5)
-        receipt.cell(160, 10, txt="Subtotal:", align="R")
-        receipt.cell(30, 10, txt=f"RM{total:.2f}", ln=1)
+        receipt.ln(20)
+        receipt.cell(200, 10, txt="Thank you for your purchase!", ln=1, align="C")
         
         # Save receipt
-        filename = f"receipt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        receipt.output(filename)
-        print(f"\nReceipt saved as {filename}")
-    
-    def run(self):
-        """Main POS interface"""
-        print("Welcome to Forever Living POS System")
+        if not os.path.exists("receipts"):
+            os.makedirs("receipts")
         
-        while True:
-            print("\nMain Menu:")
-            print("1. Browse Products")
-            print("2. View Cart")
-            print("3. Checkout")
-            print("4. Exit")
-            
-            try:
-                choice = int(input("Select option (1-4): "))
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-                continue
-            
-            if choice == 1:
-                categories = list(self.display_categories())
-                try:
-                    cat_choice = int(input("Select category: ")) - 1
-                    if 0 <= cat_choice < len(categories):
-                        category_products = self.display_products(categories[cat_choice])
-                        try:
-                            prod_choice = int(input("Select product to add to cart: "))
-                            quantity = int(input("Quantity: "))
-                            if quantity <= 0:
-                                raise ValueError
-                            self.add_to_cart(prod_choice, quantity)
-                        except ValueError:
-                            print("Invalid product selection or quantity")
-                    else:
-                        print("Invalid category selection")
-                except ValueError:
-                    print("Invalid input")
-            
-            elif choice == 2:
-                self.view_cart()
-            
-            elif choice == 3:
-                self.checkout()
-            
-            elif choice == 4:
-                print("Thank you for using Forever Living POS System")
-                break
-            
-            else:
-                print("Invalid choice. Please select 1-4.")
+        filename = f"receipts/receipt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        receipt.output(filename)
+        return filename
+    
+    def create_widgets(self):
+        """Create the main GUI widgets"""
+        # Main container
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Left side - Product selection
+        left_frame = tk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Category selection
+        tk.Label(left_frame, text="Select Category:").pack(anchor=tk.W)
+        self.category_dropdown = ttk.Combobox(
+            left_frame, 
+            textvariable=self.category_var,
+            state="readonly"
+        )
+        self.category_dropdown.pack(fill=tk.X, pady=5)
+        self.category_dropdown.bind(
+            "<<ComboboxSelected>>", 
+            lambda e: self.update_products_list(self.category_var.get())
+        )
+        
+        # Products display (with scrollbar)
+        products_canvas = tk.Canvas(left_frame)
+        scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=products_canvas.yview)
+        scrollable_frame = tk.Frame(products_canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: products_canvas.configure(
+                scrollregion=products_canvas.bbox("all")
+            )
+        )
+        
+        products_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        products_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        products_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        self.products_frame = scrollable_frame
+        
+        # Right side - Cart
+        right_frame = tk.Frame(main_frame, width=400)
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        
+        tk.Label(right_frame, text="Your Cart", font=('Helvetica', 12, 'bold')).pack()
+        
+        # Cart display (with scrollbar)
+        cart_canvas = tk.Canvas(right_frame)
+        cart_scrollbar = ttk.Scrollbar(right_frame, orient="vertical", command=cart_canvas.yview)
+        cart_scrollable_frame = tk.Frame(cart_canvas)
+        
+        cart_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: cart_canvas.configure(
+                scrollregion=cart_canvas.bbox("all")
+            )
+        )
+        
+        cart_canvas.create_window((0, 0), window=cart_scrollable_frame, anchor="nw")
+        cart_canvas.configure(yscrollcommand=cart_scrollbar.set)
+        
+        cart_canvas.pack(side="left", fill="both", expand=True)
+        cart_scrollbar.pack(side="right", fill="y")
+        
+        self.cart_frame = cart_scrollable_frame
+
+def main():
+    root = tk.Tk()
+    app = ForeverLivingPOS(root)
+    root.mainloop()
 
 if __name__ == "__main__":
-    pos = ForeverLivingPOS()
-    pos.run()
+    main()
